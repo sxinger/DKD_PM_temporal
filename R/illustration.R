@@ -35,22 +35,100 @@ cd_dist<-fact_stack %>%
                    cd_cnt=length(unique(CONCEPT_CD))) %>%
   ungroup
 
+#overall demographics
+demo<-fact_stack %>% filter(VARIABLE_CATEG=="demographics") %>%
+  filter(NVAL_NUM==1|CONCEPT_CD=="AGE_at_DM") %>%
+  left_join(pat_tbl %>% group_by(PATIENT_NUM) %>%
+              top_n(n=1L,wt=DAY_SINCE) %>%
+              top_n(n=1L,wt=DKD_IND_additive) %>%
+              dplyr::select(PATIENT_NUM,DKD_IND_additive) %>%
+              unique,
+            by="PATIENT_NUM")
+
+#age in numeric
+demo %>%
+  filter(CONCEPT_CD=="AGE_at_DM") %>%
+  dplyr::select(NVAL_NUM,DKD_IND_additive) %>%
+  group_by(DKD_IND_additive) %>%
+  dplyr::summarise(age_mean=mean(NVAL_NUM,na.rm=T),
+                   age_sd=sd(NVAL_NUM,na.rm=T)) %>%
+  ungroup %>% View
+
+#other categorical
+demo2<-demo %>%
+  mutate(CONCEPT_TYPE=gsub("_.*","",CONCEPT_CD)) %>%
+  group_by(DKD_IND_additive,CONCEPT_TYPE) %>%
+  dplyr::mutate(enc_all=length(unique(PATIENT_NUM))) %>%
+  ungroup %>%
+  group_by(DKD_IND_additive,CONCEPT_CD,CONCEPT_TYPE,enc_all) %>%
+  dplyr::summarise(enc_at=length(unique(PATIENT_NUM))) %>%
+  ungroup %>%
+  mutate(enc_prop=round(enc_at/enc_all,3))
+
+demo2 %>%
+  filter(!grepl("\\|",CONCEPT_CD)) %>%
+  dplyr::select(CONCEPT_TYPE,CONCEPT_CD,enc_at,DKD_IND_additive) %>%
+  spread(DKD_IND_additive,enc_at,fill=0) %>%
+  left_join(demo2 %>%
+              dplyr::select(CONCEPT_TYPE,CONCEPT_CD,enc_prop,DKD_IND_additive) %>%
+              spread(DKD_IND_additive,enc_prop,fill=0),
+            by=c("CONCEPT_TYPE","CONCEPT_CD")) %>%
+  dplyr::rename("enc_cnt_0"=`0.x`,
+                "enc_cnt_1"=`1.x`,
+                "enc_prop_0"=`0.y`,
+                "enc_prop_1"=`1.y`) %>%
+  dplyr::select(CONCEPT_TYPE,CONCEPT_CD,
+                enc_cnt_0,enc_prop_0,
+                enc_cnt_1,enc_prop_1) %>%
+  arrange(CONCEPT_TYPE,desc(enc_cnt_0)) %>%
+  View
+
+
+#dkd drift
+dkd_drift<-pat_tbl %>%
+  filter(YR_SINCE<=5) %>%
+  dplyr::select(PATIENT_NUM, DKD_IND_additive,YR_SINCE) %>%
+  group_by(PATIENT_NUM,YR_SINCE) %>%
+  top_n(n=1L,wt=DKD_IND_additive) %>%
+  ungroup %>% unique %>%
+  spread(YR_SINCE,DKD_IND_additive) %>%
+  gather(YR_SINCE,DKD_IND_additive,-PATIENT_NUM) %>%
+  group_by(PATIENT_NUM) %>%
+  mutate(DKD_IND=DKD_IND_additive) %>%
+  fill(DKD_IND_additive,.direction="up") %>%
+  ungroup %>%
+  filter(!is.na(DKD_IND_additive)) %>%
+  replace_na(list(DKD_IND="NA")) %>%
+  dplyr::select(PATIENT_NUM,YR_SINCE,DKD_IND)
+
+dkd_drift %>%
+  group_by(DKD_IND,YR_SINCE) %>%
+  dplyr::summarise(pat_cnt=length(unique(PATIENT_NUM))) %>%
+  ungroup %>%
+  spread(DKD_IND,pat_cnt,fill=0) %>%
+  mutate(DKD_rt=round(`1`/(`0`+`1`),2)) %>%
+  View
+
+
 #heatmap for facts/patient over years
 heatmap<-fact_stack %>%
-  mutate(yr_from_dm=ifelse(yr_from_dm<=-5,-5,yr_from_dm)) %>%
+  filter(yr_from_dm<=5) %>%
+  mutate(yr_from_dm=case_when(yr_from_dm<=-5~-5,
+                              TRUE~yr_from_dm)) %>%
   group_by(VARIABLE_CATEG,yr_from_dm) %>%
   dplyr::summarise(fact_cnt=n(),
                    pat_cnt=length(unique(PATIENT_NUM))) %>%
   ungroup %>%
   mutate(fact_per_pat=round(fact_cnt/pat_cnt))
-save(heatmap,file="./output/heatmap.rda")
+saveRDS(heatmap,file="./output/heatmap.rda")
 
-df<-fact_stack %>%
-  group_by(VARIABLE_CATEG) %>%
-  dplyr::summarise(fact_cnt=n(),
-                   pat_cnt=length(unique(PATIENT_NUM))) %>%
-  ungroup %>%
-  mutate(fact_per_pat=round(fact_cnt/pat_cnt))
+ggplot(heatmap %>% filter(!VARIABLE_CATEG %in% c("engineered","demographics")),
+       aes(x=yr_from_dm,y=VARIABLE_CATEG))+
+  geom_tile(aes(fill=fact_per_pat),color="white")+
+  scale_fill_gradient(low="white",high="steelblue",name="# of facts/patient")+
+  scale_x_continuous(breaks=seq(-5,5),labels = seq(-5,5))+
+  labs(x="# of Years from DM onset",y="Data Type")+
+  theme_classic()
 
 
 #pick out one random DKD patients
@@ -63,9 +141,6 @@ ex<-list(pat_tbl=pat_tbl %>%
            dplyr::select(-PATIENT_NUM))
 
 saveRDS(ex,file="./output/example.rda")
-
-
-
 
 ex<-readRDS("./output/example.rda")
 
