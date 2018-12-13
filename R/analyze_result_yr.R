@@ -1,5 +1,7 @@
 ####Result Analysis ####
 
+setwd("~/proj_dkd/DKD_PM_temporal")
+
 rm(list=ls()); gc()
 
 source("./util.R")

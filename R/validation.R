@@ -1,6 +1,6 @@
 ## validations ##
 
-setwd("~/proj_dkd/DKD_PM_wip")
+setwd("~/proj_dkd/DKD_PM_temporal")
 
 rm(list=ls()); gc()
 source("../helper_functions.R")
