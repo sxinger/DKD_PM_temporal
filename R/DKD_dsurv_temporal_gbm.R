@@ -2,10 +2,10 @@
 
 rm(list=ls()); gc()
 
-setwd("~/proj_dkd/DKD_PM_wip")
+# setwd("~/proj_dkd/DKD_PM_wip")
 
-source("./util.R")
-source("./newXY.R")
+source("./R/util.R")
+source("./R/newXY.R")
 require_libraries(c( "Matrix"
                      ,"pROC"
                      ,"xgboost"
@@ -15,8 +15,11 @@ require_libraries(c( "Matrix"
 ))
 
 # Load data
-load("./data/X_long.Rdata")
-load("./data2/pat_episode2.Rdata")
+X_long<-readRDS("./data2/X_long.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
+
+pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
 #==== evaluations
 # time_iterv<-"3mth"
@@ -189,7 +192,7 @@ out<-list(x_prep = Xy_all,
           model = xgb_tune,
           bm = bm)
 
-save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model2.Rdata"))
+save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model4.Rdata"))
 
 rm(list=ls())
 gc()

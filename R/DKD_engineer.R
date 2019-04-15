@@ -12,7 +12,7 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
 ))
 
-load("./data/DKD_heron_facts_prep.Rdata")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda")
 
 ## add historical distinct fact counts (distinct day,concept) update to date
 add_FCNT<-fact_stack %>% 
@@ -67,7 +67,7 @@ fact_stack %<>%
 rm(add_FCNT3); gc()
 
 ## update data
-save(fact_stack, file="./data/DKD_heron_facts_prep.Rdata")
+saveRDS(fact_stack, file="./data2/DKD_heron_facts_prep.rda")
 
 rm(list=ls())
 gc()

@@ -585,4 +585,4 @@ fact_stack %<>%
 #                         pat_cnt=length(unique(PATIENT_NUM)),
 #                         cd_cnt=length(unique(CONCEPT_CD))))
 
-save(fact_stack, file="./data/DKD_heron_facts_prep.Rdata")
+saveRDS(fact_stack, file="./data2/DKD_heron_facts_prep.rda")

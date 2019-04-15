@@ -1,10 +1,10 @@
 ## most recent value ##
 rm(list=ls()); gc()
 
-setwd("~/proj_dkd/DKD_PM_wip")
+# setwd("~/proj_dkd/DKD_PM_wip")
 
-source("./util.R")
-source("./newXY.R")
+source("./R/util.R")
+source("./R/newXY.R")
 require_libraries(c( "Matrix"
                      ,"pROC"
                      ,"xgboost"
@@ -14,8 +14,12 @@ require_libraries(c( "Matrix"
 ))
 
 # Load data
-load("./data/DKD_heron_facts_prep.Rdata")
-load("./data2/pat_episode2.Rdata")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
+
+pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
+
 
 # time_iterv<-"3mth"
 # time_iterv<-"6mth"
@@ -84,9 +88,9 @@ for(yr in 0:4){
   objective<-"binary:logistic"
   grid_params_tree<-expand.grid(
     max_depth=8,
-    # max_depth=c(4,6,8,10),
+    # max_depth=c(2,8),
     eta=0.02,
-    # eta=c(0.05,0.02,0.01),
+    # eta=c(0.02,0.01),
     min_child_weight=1,
     subsample=0.8,
     colsample_bytree=0.8, 
@@ -184,4 +188,4 @@ out<-list(model_tr =model_tr,
           model_roc = model_roc,
           bm_yr = bm_yr)
 
-save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model3.Rdata"))
+save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model4.Rdata"))

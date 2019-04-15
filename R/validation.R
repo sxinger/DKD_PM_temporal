@@ -1,10 +1,10 @@
 ## validations ##
 
-setwd("~/proj_dkd/DKD_PM_temporal")
+# setwd("~/proj_dkd/DKD_PM_temporal")
 
 rm(list=ls()); gc()
-source("../helper_functions.R")
-source("./newXY.R")
+source("./R/util.R")
+source("./R/newXY.R")
 require_libraries(c( "Matrix"
                      ,"pROC"
                      ,"xgboost"
@@ -17,7 +17,8 @@ require_libraries(c( "Matrix"
 validation<-list()
 
 # Load patient data
-load("./data2/pat_episode2.Rdata")
+pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
 ep_unit<-365.25
 pat_episode<-pat_tbl %>%
@@ -47,11 +48,10 @@ time_iterv<-"1yr"
 
 ####dynamic-temporal####
 i<-5
-load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model2.Rdata"))
-load("./data/X_long.Rdata")
+load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model4.Rdata"))
 
 #subset testing set
-X_long %<>%
+X_long<-readRDS("./data2/X_long.rda") %>%
   semi_join(partition_ts %>% dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)),
             by="PATIENT_NUM")
 
@@ -212,7 +212,6 @@ valid_stack5 %<>%
               unique %>% dplyr::mutate(PATIENT_NUM=as.character(PATIENT_NUM)),
             by=c("PATIENT_NUM","episode"))
 
-load("./data2/valid_stack5.Rdata")
 valid_stack5 %>%
   semi_join(pat_episode %>% dplyr::select(PATIENT_NUM,episode) %>% 
               unique %>% dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM)),
@@ -232,148 +231,150 @@ valid_stack5 %>%
 validation[[paste0("valid_stack",i)]]<-valid_stack5 %>% ungroup
 
 ####grp-temporal####
-i<-4
-load(paste0("./data/",time_iterv,"_",type_seq[i],"_gbm_model.Rdata"))
-load("./data/X_long.Rdata")
-
-valid_stack4<-c()
-for(j in c(0,seq_len(max(partition_ts$episode)))){
-  start_j<-Sys.time()
-  
-  #get predictors for test set
-  test<-X_long %>% 
-    left_join(partition_ts %>%
-                dplyr::select(PATIENT_NUM,episode) %>% 
-                dplyr::filter(episode == j) %>% unique,
-              by="PATIENT_NUM") %>%
-    dplyr::filter(episode > episode_x) %>%
-    dplyr::select(PATIENT_NUM, VARIABLE, episode_x, NVAL_NUM) %>%
-    unique
-  
-  #standardization
-  test %<>%
-    inner_join(out$x_prep$Tr_std,by="VARIABLE") %>%
-    dplyr::mutate(NVAL_std=(NVAL_NUM-NVAL_mean)/NVAL_sd)
-  
-  #orthogonalization
-  var_lst<-names(out$x_prep$Tr_ort)
-  test_std<-c()
-  
-  for(var in var_lst){
-    start<-Sys.time()
-    
-    #collect episodes used for training
-    ep<-X_long %>% anti_join(partition_ts,by="PATIENT_NUM") %>%
-      dplyr::filter(VARIABLE==var) %>% 
-      dplyr::select(episode_x) %>% 
-      arrange(episode_x) %>% unique %>%
-      left_join(test %>% 
-                  dplyr::filter(VARIABLE==var) %>%
-                  dplyr::select(episode_x) %>%
-                  arrange(episode_x) %>% unique %>%
-                  dplyr::mutate(col_sel=T),
-                by="episode_x") %>%
-      replace_na(list(col_sel=F))
-      
-    
-    #transform var
-    if(all(ep$col_sel==F) | is.null(out$x_prep$Tr_ort[[var]])){
-      test_std %>%
-        bind_rows(test %>% dplyr::select(PATIENT_NUM, VARIABLE, NVAL_std) %>%
-                    dplyr::filter(VARIABLE==var) %>%  unique)
-    }else{
-      var_trans<-test %>%
-        dplyr::filter(VARIABLE==var) %>%
-        dplyr::select(PATIENT_NUM,VARIABLE,episode_x,NVAL_std) %>%
-        semi_join(ep %>% dplyr::filter(col_sel),by="episode_x") %>% #episode in test may not necessarily been selected by training
-        unite("VARIABLE_ep",c("VARIABLE","episode_x")) %>%
-        long_to_sparse_matrix(.,
-                              id="PATIENT_NUM",
-                              variable="VARIABLE_ep",
-                              val="NVAL_std")
-      var_trans<-var_trans %*% out$x_prep$Tr_ort[[var]][ep$col_sel,]
-      colnames(var_trans)<-paste0(var,"_Comp",1:ncol(var_trans))
-      
-      #stack standardized features
-      test_std %<>%
-        bind_rows(data.frame(PATIENT_NUM = as.numeric(rep(row.names(var_trans),ncol(var_trans))),
-                             VARIABLE    = rep(colnames(var_trans),each=nrow(var_trans)),
-                             NVAL_std    = var_trans@x,
-                             stringsAsFactors = F))
-    }
-    
-    lapse<-Sys.time()-start
-    cat("...",var,"transformed in",lapse,units(lapse),".\n")
-  }
-  
-  #collect additional features required for training model
-  x_add<-data.frame(VARIABLE = out$model$feature_names,
-                    stringsAsFactors = F) %>%
-    anti_join(data.frame(VARIABLE = as.character(unique(test_std$VARIABLE)),
-                         stringsAsFactors = F),
-              by="VARIABLE")
-  
-  #introduce psuedo-obs to align with training model
-  test_std %<>%
-    bind_rows(data.frame(PATIENT_NUM = rep(0,nrow(x_add)),
-                         VARIABLE = x_add$VARIABLE,
-                         NVAL_NUM = 0,
-                         stringsAsFactors = F))
-  
-  test_std %<>%
-    arrange(PATIENT_NUM) %>%
-    long_to_sparse_matrix(.,
-                          id="PATIENT_NUM",
-                          variable="VARIABLE",
-                          val="NVAL_NUM")
-  
-  test_std<-test_std[-1,]
-  
-  #check alignment
-  if(!all(colnames(test_std)==colnames(out$x_prep$X_ep))){
-    warning("predictors don't align!")
-  }
-  
-  #make prediction on validation set
-  valid<-data.frame(PATIENT_NUM = as.numeric(row.names(test_std)),
-                    pred = predict(out$model,newdata=test_std),
-                    stringsAsFactors = F) %>%
-    inner_join(partition_ts %>%
-                 filter(episode == j) %>%
-                 group_by(PATIENT_NUM,episode, part_idx) %>% 
-                 top_n(n=1,wt=DKD_IND_additive) %>%
-                 ungroup %>% dplyr::rename(real = DKD_IND_additive),
-               by="PATIENT_NUM") %>%
-    dplyr::select(PATIENT_NUM, episode, pred, real, part_idx) %>%
-    dplyr::mutate(temporal = type_seq[i])
-  
-  valid_stack4 %<>% bind_rows(valid)
-  
-  lapse_j<-Sys.time()-start_j
-  cat("finish predict at",j, "in",lapse_j,units(lapse_j),".\n")
-}
-
-#quick AUC check
-valid_stack4 %>%
-  group_by(episode,part_idx,temporal) %>%
-  dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)) %>%
-  dplyr::summarize(pat_cnt = length(unique(PATIENT_NUM)),
-                   dkd_cnt = length(unique(PATIENT_NUM*real))-1,
-                   dkd_rate = round((length(unique(PATIENT_NUM*real))-1)/length(unique(PATIENT_NUM)),2),
-                   low95=pROC::ci.auc(real,pred)[1],
-                   auc=pROC::ci.auc(real,pred)[2],
-                   up95=pROC::ci.auc(real,pred)[3]) %>%
-  ungroup %>% arrange(part_idx, episode) %>%
-  View
+# i<-4
+# load(paste0("./data/",time_iterv,"_",type_seq[i],"_gbm_model.Rdata"))
+# load("./data/X_long.Rdata")
+# 
+# valid_stack4<-c()
+# for(j in c(0,seq_len(max(partition_ts$episode)))){
+#   start_j<-Sys.time()
+#   
+#   #get predictors for test set
+#   test<-X_long %>% 
+#     left_join(partition_ts %>%
+#                 dplyr::select(PATIENT_NUM,episode) %>% 
+#                 dplyr::filter(episode == j) %>% unique,
+#               by="PATIENT_NUM") %>%
+#     dplyr::filter(episode > episode_x) %>%
+#     dplyr::select(PATIENT_NUM, VARIABLE, episode_x, NVAL_NUM) %>%
+#     unique
+#   
+#   #standardization
+#   test %<>%
+#     inner_join(out$x_prep$Tr_std,by="VARIABLE") %>%
+#     dplyr::mutate(NVAL_std=(NVAL_NUM-NVAL_mean)/NVAL_sd)
+#   
+#   #orthogonalization
+#   var_lst<-names(out$x_prep$Tr_ort)
+#   test_std<-c()
+#   
+#   for(var in var_lst){
+#     start<-Sys.time()
+#     
+#     #collect episodes used for training
+#     ep<-X_long %>% anti_join(partition_ts,by="PATIENT_NUM") %>%
+#       dplyr::filter(VARIABLE==var) %>% 
+#       dplyr::select(episode_x) %>% 
+#       arrange(episode_x) %>% unique %>%
+#       left_join(test %>% 
+#                   dplyr::filter(VARIABLE==var) %>%
+#                   dplyr::select(episode_x) %>%
+#                   arrange(episode_x) %>% unique %>%
+#                   dplyr::mutate(col_sel=T),
+#                 by="episode_x") %>%
+#       replace_na(list(col_sel=F))
+#       
+#     
+#     #transform var
+#     if(all(ep$col_sel==F) | is.null(out$x_prep$Tr_ort[[var]])){
+#       test_std %>%
+#         bind_rows(test %>% dplyr::select(PATIENT_NUM, VARIABLE, NVAL_std) %>%
+#                     dplyr::filter(VARIABLE==var) %>%  unique)
+#     }else{
+#       var_trans<-test %>%
+#         dplyr::filter(VARIABLE==var) %>%
+#         dplyr::select(PATIENT_NUM,VARIABLE,episode_x,NVAL_std) %>%
+#         semi_join(ep %>% dplyr::filter(col_sel),by="episode_x") %>% #episode in test may not necessarily been selected by training
+#         unite("VARIABLE_ep",c("VARIABLE","episode_x")) %>%
+#         long_to_sparse_matrix(.,
+#                               id="PATIENT_NUM",
+#                               variable="VARIABLE_ep",
+#                               val="NVAL_std")
+#       var_trans<-var_trans %*% out$x_prep$Tr_ort[[var]][ep$col_sel,]
+#       colnames(var_trans)<-paste0(var,"_Comp",1:ncol(var_trans))
+#       
+#       #stack standardized features
+#       test_std %<>%
+#         bind_rows(data.frame(PATIENT_NUM = as.numeric(rep(row.names(var_trans),ncol(var_trans))),
+#                              VARIABLE    = rep(colnames(var_trans),each=nrow(var_trans)),
+#                              NVAL_std    = var_trans@x,
+#                              stringsAsFactors = F))
+#     }
+#     
+#     lapse<-Sys.time()-start
+#     cat("...",var,"transformed in",lapse,units(lapse),".\n")
+#   }
+#   
+#   #collect additional features required for training model
+#   x_add<-data.frame(VARIABLE = out$model$feature_names,
+#                     stringsAsFactors = F) %>%
+#     anti_join(data.frame(VARIABLE = as.character(unique(test_std$VARIABLE)),
+#                          stringsAsFactors = F),
+#               by="VARIABLE")
+#   
+#   #introduce psuedo-obs to align with training model
+#   test_std %<>%
+#     bind_rows(data.frame(PATIENT_NUM = rep(0,nrow(x_add)),
+#                          VARIABLE = x_add$VARIABLE,
+#                          NVAL_NUM = 0,
+#                          stringsAsFactors = F))
+#   
+#   test_std %<>%
+#     arrange(PATIENT_NUM) %>%
+#     long_to_sparse_matrix(.,
+#                           id="PATIENT_NUM",
+#                           variable="VARIABLE",
+#                           val="NVAL_NUM")
+#   
+#   test_std<-test_std[-1,]
+#   
+#   #check alignment
+#   if(!all(colnames(test_std)==colnames(out$x_prep$X_ep))){
+#     warning("predictors don't align!")
+#   }
+#   
+#   #make prediction on validation set
+#   valid<-data.frame(PATIENT_NUM = as.numeric(row.names(test_std)),
+#                     pred = predict(out$model,newdata=test_std),
+#                     stringsAsFactors = F) %>%
+#     inner_join(partition_ts %>%
+#                  filter(episode == j) %>%
+#                  group_by(PATIENT_NUM,episode, part_idx) %>% 
+#                  top_n(n=1,wt=DKD_IND_additive) %>%
+#                  ungroup %>% dplyr::rename(real = DKD_IND_additive),
+#                by="PATIENT_NUM") %>%
+#     dplyr::select(PATIENT_NUM, episode, pred, real, part_idx) %>%
+#     dplyr::mutate(temporal = type_seq[i])
+#   
+#   valid_stack4 %<>% bind_rows(valid)
+#   
+#   lapse_j<-Sys.time()-start_j
+#   cat("finish predict at",j, "in",lapse_j,units(lapse_j),".\n")
+# }
+# 
+# #quick AUC check
+# valid_stack4 %>%
+#   group_by(episode,part_idx,temporal) %>%
+#   dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)) %>%
+#   dplyr::summarize(pat_cnt = length(unique(PATIENT_NUM)),
+#                    dkd_cnt = length(unique(PATIENT_NUM*real))-1,
+#                    dkd_rate = round((length(unique(PATIENT_NUM*real))-1)/length(unique(PATIENT_NUM)),2),
+#                    low95=pROC::ci.auc(real,pred)[1],
+#                    auc=pROC::ci.auc(real,pred)[2],
+#                    up95=pROC::ci.auc(real,pred)[3]) %>%
+#   ungroup %>% arrange(part_idx, episode) %>%
+#   View
 
   
 ####discrt-surv-temporal####
 i<-3
-load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model2.Rdata"))
-load("./data/X_long.Rdata")
+load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model4.Rdata"))
 
 #subset testing set
-X_long %<>% semi_join(partition_ts, by="PATIENT_NUM")
+X_long<-readRDS("./data2/X_long.rda") %>% 
+  semi_join(partition_ts %>%
+              dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)), 
+            by="PATIENT_NUM")
 
 valid_stack3<-c()
 for(j in 0:4){
@@ -431,10 +432,10 @@ for(j in 0:4){
 }
 
 
-partition_ts %<>%
-  dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
-                real=DKD_IND_additive) %>%
-  dplyr::select(PATIENT_NUM,episode,real,part_idx)
+# partition_ts %<>%
+#   dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
+#                 real=DKD_IND_additive) %>%
+#   dplyr::select(PATIENT_NUM,episode,real,part_idx)
 
 
 valid_stack3 %<>%
@@ -481,12 +482,12 @@ validation[[paste0("valid_stack",i)]]<-valid_stack3 %>% ungroup
 
 #####stack-temporal#####
 i<-2
-load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model3.Rdata"))
-load("./data/X_long.Rdata")
+load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model4.Rdata"))
 
 #subset testing set
-X_long %<>%
-  semi_join(partition_ts %>% dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)),
+X_long<-readRDS("./data2/X_long.rda") %>%
+  semi_join(partition_ts %>% 
+              dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)),
             by="PATIENT_NUM")
 
 valid_stack2<-c()
@@ -554,10 +555,10 @@ for(j in 0:4){
   cat("finish collecting predictions for year",j,"in",lapse,units(lapse),".\n")
 }
 
-partition_ts %<>%
-  dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
-                real=DKD_IND_additive) %>%
-  dplyr::select(PATIENT_NUM,episode,real,part_idx)
+# partition_ts %<>%
+#   dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
+#                 real=DKD_IND_additive) %>%
+#   dplyr::select(PATIENT_NUM,episode,real,part_idx)
 
 valid_stack2 %<>%
   left_join(partition_ts,by=c("PATIENT_NUM","episode")) %>%
@@ -602,10 +603,12 @@ validation[[paste0("valid_stack",i)]]<-valid_stack2 %>% ungroup
 
 ####non-temporal####
 i<-1
-load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model3.Rdata"))
-load("./data/DKD_heron_facts_prep.Rdata")
+load(paste0("./data2/",time_iterv,"_",type_seq[i],"_gbm_model4.Rdata"))
 
-fact_stack %<>% semi_join(partition_ts,by="PATIENT_NUM")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda") %>% 
+  semi_join(partition_ts %>% 
+              dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)),
+            by="PATIENT_NUM")
 
 valid_stack1<-c()
 for(j in 0:4){
@@ -616,11 +619,15 @@ for(j in 0:4){
   
   #get predictors for test set
   test<-fact_stack %>% filter(yr_from_dm < j) %>%
-    semi_join(partition_ts,by="PATIENT_NUM") %>%
+    semi_join(partition_ts %>% 
+                dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)),
+              by="PATIENT_NUM") %>%
     group_by(PATIENT_NUM, CONCEPT_CD) %>%
     top_n(n=-1,wt=day_to_end) %>% ungroup %>%
     dplyr::select(PATIENT_NUM, CONCEPT_CD, NVAL_NUM) %>%
-    bind_rows(partition_ts %>% dplyr::select(PATIENT_NUM) %>%
+    bind_rows(partition_ts %>% 
+                dplyr::mutate(PATIENT_NUM=as.numeric(PATIENT_NUM)) %>% 
+                dplyr::select(PATIENT_NUM) %>%
                 unique %>%
                 dplyr::mutate(CONCEPT_CD=paste0("ep_",j),
                               NVAL_NUM=1)) %>%
@@ -671,10 +678,10 @@ for(j in 0:4){
   cat("finish collecting predictions for year",j,"in",lapse,units(lapse),".\n")
 }
 
-partition_ts %<>%
-  dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
-                real=DKD_IND_additive) %>%
-  dplyr::select(PATIENT_NUM,episode,real,part_idx)
+# partition_ts %<>%
+#   dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
+#                 real=DKD_IND_additive) %>%
+#   dplyr::select(PATIENT_NUM,episode,real,part_idx)
 
 valid_stack1 %<>%
   left_join(partition_ts,by=c("PATIENT_NUM","episode")) %>%
@@ -718,6 +725,7 @@ valid_stack1 %>%
 validation[[paste0("valid_stack",i)]]<-valid_stack1 %>% ungroup
 
 saveRDS(validation,file="./data2/validation.rda")
+
 
 ##================understand feature======================
 load("./data2/1yr_non-temporal_gbm_model2.Rdata")

@@ -1,10 +1,10 @@
 ## landmark boosting ##
 rm(list=ls()); gc()
 
-setwd("~/proj_dkd/DKD_PM_wip")
+# setwd("~/proj_dkd/DKD_PM_wip")
 
-source("./util.R")
-source("./newXY.R")
+source("./R/util.R")
+source("./R/newXY.R")
 require_libraries(c( "Matrix"
                      ,"pROC"
                      ,"xgboost"
@@ -14,10 +14,12 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
                   ))
 
-
 # Load data
-load("./data/X_long.Rdata")
-load("./data2/pat_episode2.Rdata")
+X_long<-readRDS("./data2/X_long.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
+
+pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
 # time_iterv<-"3mth"
 # time_iterv<-"6mth"
@@ -122,7 +124,7 @@ for(yr in 0:4){
     objective<-"binary:logistic"
     grid_params_tree<-expand.grid(
       max_depth=8,
-      # max_depth=c(6,8,10),
+      # max_depth=c(2,8),
       eta=0.02,
       # eta=c(0.02,0.01),
       min_child_weight=1,
@@ -212,4 +214,4 @@ out<-list(model_yr = model_yr,
           model_roc = model_roc,
           bm_yr = bm_yr)
 
-save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model2.Rdata"))
+save(out,file=paste0("./data2/",time_iterv,"_",type,"_gbm_model4.Rdata"))

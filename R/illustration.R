@@ -1,5 +1,5 @@
 ## illustrations ##
-setwd("~/proj_dkd/DKD_PM_temporal")
+setwd("~/DKD_PM_temporal")
 
 rm(list=ls())
 
@@ -13,9 +13,9 @@ require_libraries(c( "Matrix"
                      ,"ggthemes"
 ))
 
-
-load("./data/DKD_heron_facts_prep.Rdata")
-load("./data2/pat_episode2.Rdata")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda")
+pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  dplyr::mutate(tr_ts=ifelse(part_idx==5,"ts","tr"))
 
 #dkd rates
 N<-length(unique(pat_tbl$PATIENT_NUM))
@@ -87,19 +87,19 @@ demo2 %>%
 
 #dkd drift
 dkd_drift<-pat_tbl %>%
-  dplyr::select(PATIENT_NUM, DKD_IND_additive,YR_SINCE) %>%
+  dplyr::select(PATIENT_NUM, DKD_IND_additive,YR_SINCE,tr_ts) %>%
   group_by(PATIENT_NUM,YR_SINCE) %>%
   top_n(n=1L,wt=DKD_IND_additive) %>%
   ungroup %>% unique %>%
   spread(YR_SINCE,DKD_IND_additive) %>%
-  gather(YR_SINCE,DKD_IND_additive,-PATIENT_NUM) %>%
+  gather(YR_SINCE,DKD_IND_additive,-PATIENT_NUM,-tr_ts) %>%
   group_by(PATIENT_NUM) %>%
   mutate(DKD_IND=DKD_IND_additive) %>%
   fill(DKD_IND_additive,.direction="up") %>%
   ungroup %>%
   filter(!is.na(DKD_IND_additive)) %>%
   replace_na(list(DKD_IND="NA")) %>%
-  dplyr::select(PATIENT_NUM,YR_SINCE,DKD_IND)
+  dplyr::select(PATIENT_NUM,YR_SINCE,DKD_IND,tr_ts)
 
 dkd_drift_demo<-dkd_drift %>%
   filter(DKD_IND != "NA") %>%
@@ -112,25 +112,26 @@ dkd_drift_demo<-dkd_drift %>%
 
 dkd_drift %>%
   filter(as.numeric(YR_SINCE)<=5) %>%
-  group_by(DKD_IND,YR_SINCE) %>%
+  group_by(DKD_IND,YR_SINCE,tr_ts) %>%
   dplyr::summarise(pat_cnt=length(unique(PATIENT_NUM))) %>%
   ungroup %>%
   spread(DKD_IND,pat_cnt,fill=0) %>%
   mutate(DKD_rt=round(`1`/(`0`+`1`),2)) %>%
   left_join(dkd_drift_demo %>%
               filter(CONCEPT_CD %in% c("AGE_at_DM","RACE_white","SEX_MALE","RELIGION_none")) %>%
-              group_by(YR_SINCE,CONCEPT_CD) %>%
+              group_by(YR_SINCE,CONCEPT_CD,tr_ts) %>%
               dplyr::summarize(avg=mean(NVAL_NUM,na.rm=T)) %>%
               mutate(CONCEPT_CD=paste0(CONCEPT_CD,"_avg")) %>%
               spread(CONCEPT_CD,avg),
-            by="YR_SINCE") %>%
+            by=c("YR_SINCE","tr_ts")) %>%
   left_join(dkd_drift_demo %>%
               filter(CONCEPT_CD %in% c("AGE_at_DM","RACE_white","SEX_MALE","RELIGION_none")) %>%
-              group_by(YR_SINCE,CONCEPT_CD) %>%
+              group_by(YR_SINCE,CONCEPT_CD,tr_ts) %>%
               dplyr::summarize(sd=sd(NVAL_NUM,na.rm=T)) %>%
               mutate(CONCEPT_CD=paste0(CONCEPT_CD,"_sd")) %>%
               spread(CONCEPT_CD,sd),
-            by="YR_SINCE") %>%
+            by=c("YR_SINCE","tr_ts")) %>%
+  dplyr::mutate(eligb=`0`+`1`) %>%
   View
 
 

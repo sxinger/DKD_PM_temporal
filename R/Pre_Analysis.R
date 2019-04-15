@@ -11,7 +11,7 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
                    ))
 
-load("./data/pat_episode.Rdata")
+load("./data2/pat_episode2.Rdata")
 
 #### eGFR update frequencies ####
 eGFR_ud_freq<-pat_tbl %>%
