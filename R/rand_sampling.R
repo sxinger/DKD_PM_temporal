@@ -2,9 +2,7 @@
 
 rm(list=ls()); gc()
 
-setwd("~/proj_dkd/DKD_PM_wip")
-
-source("./util.R")
+source("./R/util.R")
 require_libraries(c("dplyr",
                     "tidyr",
                     "magrittr",
@@ -13,8 +11,8 @@ require_libraries(c("dplyr",
 
 
 ## Load targets
-pat_tbl<-read.csv("./DKD_PM/data/dkd_patients_full.csv",header=T,stringsAsFactors=F) %>%
-  semi_join(read.csv("./DKD_PM/data/dkd_patients.csv",header=T,stringsAsFactors=F),
+pat_tbl<-read.csv("./data/dkd_patients_full.csv",header=T,stringsAsFactors=F) %>%
+  semi_join(read.csv("./data/dkd_patients.csv",header=T,stringsAsFactors=F),
             by="PATIENT_NUM") %>%
   dplyr::mutate(ENC_START = as.Date(ENC_START,format="%d-%b-%y"),
                 ENC_END = as.Date(ENC_END,format="%d-%b-%y"),
@@ -46,34 +44,5 @@ pn_fold<-pat_tbl %>%
 pat_tbl %<>% 
   left_join(pn_fold,by="PATIENT_NUM")
 
-save(pat_tbl,file="./data2/pat_episode2.Rdata")
-
-
-## Random Sampling with external hold-out
-pat_tbl %<>%
-  dplyr::mutate(part_idx=ifelse(DM_YR >= 2016,"H","T"))
-
-#cut by patient_num (distinct patient should only be contained in 1 fold)
-pn_fold<-pat_tbl %>% 
-  dplyr::filter(part_idx=="T") %>%
-  dplyr::select(PATIENT_NUM) %>% unique %>%
-  dplyr::mutate(fold=sample(1:5,n(),replace=T)) 
-
-pat_tbl %<>%
-  left_join(pn_fold,by="PATIENT_NUM") %>%
-  dplyr::mutate(part_idx=ifelse(part_idx=="T",as.character(fold),part_idx)) 
-
-save(pat_tbl,file="./data/pat_episode.Rdata")
-
-
-## simple Random Sampling
-#cut by patient_num (distinct patient should only be contained in 1 fold)
-pn_fold<-pat_tbl %>% 
-  dplyr::select(PATIENT_NUM) %>% unique %>%
-  dplyr::mutate(part_idx=sample(1:5,n(),replace=T)) 
-
-pat_tbl %<>%
-  left_join(pn_fold,by="PATIENT_NUM")
-
-save(pat_tbl,file="./DKD_ontology/data/pat_episode.Rdata")
+saveRDS(pat_tbl,file="./data2/pat_episode2.rda")
 

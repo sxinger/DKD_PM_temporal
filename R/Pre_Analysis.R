@@ -2,7 +2,7 @@
 rm(list=ls())
 gc()
 
-source("../helper_functions.R")
+source("./R/util.R")
 require_libraries(c( "Matrix"
                      ,"pROC"
                      ,"xgboost"
@@ -11,7 +11,8 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
                    ))
 
-load("./data2/pat_episode2.Rdata")
+pat_tbl<-readRDS("./data2/pat_episode2.rda")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda")
 
 #### eGFR update frequencies ####
 eGFR_ud_freq<-pat_tbl %>%
@@ -44,7 +45,8 @@ fact_ud_freq<-fact_stack %>%
                    day_delta_IQR = quantile(day_from_dm_delta,probs=0.75,na.rm=T)-quantile(day_from_dm_delta,probs=0.25,na.rm=T)) %>%
   ungroup %>%
   group_by(VARIABLE_CATEG) %>%
-  dplyr::summarize(overall_mean = mean(day_delta_mean,na.rm=T),
+  dplyr::summarize(size=length(unique(PATIENT_NUM)),
+                   overall_mean = mean(day_delta_mean,na.rm=T),
                    within_pat_sd = mean(day_delta_sd,na.rm=T),
                    acr_pat_sd = sd(day_delta_mean,na.rm=T),
                    overall_median = median(day_delta_median,na.rm=T),

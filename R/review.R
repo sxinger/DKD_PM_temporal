@@ -18,7 +18,8 @@ conn<-connect_to_oci(config)
 dbWriteTable(conn,"DKD_PAT_NUM_CALAMUS",pat_num,overwrite=T)
 
 
-##..............work on sql oracle...............##
+##..............work in sql oracle...............##
+##..............identify T1DM, CFRD..............##
 
 
 ## Q1-how many T1DM and CFRD? necessary to re-run the whole experiment?

@@ -164,10 +164,12 @@ get_calibr<-function(pred,real,n_bin=20){
                      bin_upper=max(pred),
                      bin_mid=median(pred),
                      y_agg = sum(y),
+                     pred_agg = sum(pred),
                      pred_p = mean(pred)) %>%
-    dplyr::mutate(y_p=y_agg/expos) %>%
-    dplyr::mutate(binCI_lower = pmax(0,pred_p-1.96*sqrt(y_p*(1-y_p)/expos)),
-                  binCI_upper = pred_p+1.96*sqrt(y_p*(1-y_p)/expos))
+    dplyr::mutate(y_p=y_agg/expos,
+                  OE=y_agg/pred_agg) %>%
+    dplyr::mutate(binCI_lower = OE-1.96*sqrt(y_agg)/pred_agg,
+                  binCI_upper = OE+1.96*sqrt(y_agg)/pred_agg)
   
   return(calib)
 }

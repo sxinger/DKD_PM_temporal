@@ -1,5 +1,5 @@
 ## illustrations ##
-setwd("~/DKD_PM_temporal")
+# setwd("~/DKD_PM_temporal")
 
 rm(list=ls())
 
@@ -13,9 +13,27 @@ require_libraries(c( "Matrix"
                      ,"ggthemes"
 ))
 
-fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda")
+fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
+
 pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
+  anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM") %>%
   dplyr::mutate(tr_ts=ifelse(part_idx==5,"ts","tr"))
+
+pat_tbl %>%
+  group_by(tr_ts) %>%
+  dplyr::summarise(pat_cnt=length(unique(PATIENT_NUM))) %>%
+  ungroup %>%
+  View
+
+ep_unit<-365.25
+pat_tbl %>%
+  dplyr::mutate(episode = floor(as.numeric(DAY_SINCE)/ep_unit)) %>%
+  group_by(tr_ts,episode) %>%
+  dplyr::summarise(pat_cnt=length(unique(PATIENT_NUM))) %>%
+  ungroup %>%
+  View
+
 
 #dkd rates
 N<-length(unique(pat_tbl$PATIENT_NUM))
@@ -33,7 +51,8 @@ cd_dist<-fact_stack %>%
   group_by(VARIABLE_CATEG) %>%
   dplyr::summarize(fact_cnt=n(),
                    pat_cnt=length(unique(PATIENT_NUM)),
-                   cd_cnt=length(unique(CONCEPT_CD))) %>%
+                   cd_cnt=length(unique(CONCEPT_CD)),
+                   pat_prop=round(length(unique(PATIENT_NUM))/N,2)) %>%
   ungroup
 
 #overall demographics
@@ -57,12 +76,13 @@ demo %>%
 
 #other categorical
 demo2<-demo %>%
-  mutate(CONCEPT_TYPE=gsub("_.*","",CONCEPT_CD)) %>%
+  filter(!grepl("RELIGION",CONCEPT_CD)&NVAL_NUM>0) %>%
+  dplyr::mutate(CONCEPT_TYPE=gsub("_.*","",CONCEPT_CD)) %>%
   group_by(DKD_IND_additive,CONCEPT_TYPE) %>%
   dplyr::mutate(enc_all=length(unique(PATIENT_NUM))) %>%
   ungroup %>%
-  group_by(DKD_IND_additive,CONCEPT_CD,CONCEPT_TYPE,enc_all) %>%
-  dplyr::summarise(enc_at=length(unique(PATIENT_NUM))) %>%
+  group_by(DKD_IND_additive,CONCEPT_TYPE,enc_all,CONCEPT_CD) %>%
+  dplyr::summarize(enc_at=length(unique(PATIENT_NUM))) %>%
   ungroup %>%
   mutate(enc_prop=round(enc_at/enc_all,3))
 
@@ -121,6 +141,7 @@ dkd_drift %>%
               filter(CONCEPT_CD %in% c("AGE_at_DM","RACE_white","SEX_MALE","RELIGION_none")) %>%
               group_by(YR_SINCE,CONCEPT_CD,tr_ts) %>%
               dplyr::summarize(avg=mean(NVAL_NUM,na.rm=T)) %>%
+              ungroup %>%
               mutate(CONCEPT_CD=paste0(CONCEPT_CD,"_avg")) %>%
               spread(CONCEPT_CD,avg),
             by=c("YR_SINCE","tr_ts")) %>%
@@ -128,11 +149,13 @@ dkd_drift %>%
               filter(CONCEPT_CD %in% c("AGE_at_DM","RACE_white","SEX_MALE","RELIGION_none")) %>%
               group_by(YR_SINCE,CONCEPT_CD,tr_ts) %>%
               dplyr::summarize(sd=sd(NVAL_NUM,na.rm=T)) %>%
+              ungroup %>%
               mutate(CONCEPT_CD=paste0(CONCEPT_CD,"_sd")) %>%
               spread(CONCEPT_CD,sd),
             by=c("YR_SINCE","tr_ts")) %>%
   dplyr::mutate(eligb=`0`+`1`) %>%
   View
+
 
 
 #heatmap for facts/patient over years

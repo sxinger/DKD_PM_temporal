@@ -1,8 +1,6 @@
 ## landmark boosting ##
 rm(list=ls()); gc()
 
-# setwd("~/proj_dkd/DKD_PM_wip")
-
 source("./R/util.R")
 source("./R/newXY.R")
 require_libraries(c( "Matrix"
@@ -14,36 +12,31 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
                   ))
 
-# Load data
+##----task parameter----
+time_iterv<-"1yr"
+ep_unit<-365.25
+period<-(365.25/ep_unit)*5
+
+##----Load data----
 X_long<-readRDS("./data2/X_long.rda") %>%
   anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
 pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
   anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
-# time_iterv<-"3mth"
-# time_iterv<-"6mth"
-time_iterv<-"1yr"
 
-# ep_unit<-90
-# ep_unit<-182.5
-ep_unit<-365.25
-
-#period
-period<-(365.25/ep_unit)*5
-# period<-(365/ep_unit)*8
-
+##----partition----
 pat_episode<-pat_tbl %>%
   dplyr::mutate(episode = floor(as.numeric(DAY_SINCE)/ep_unit))
 
 X_long %<>% dplyr::filter(episode_x < period)
 
+##----modeling----
 # number of fold for cv
 nfold<-5 #nfold for cv
 
 # temporal handling method
 type<-"dynamic-temporal"
-
 
 model_yr<-list()
 model_roc<-list()
@@ -123,9 +116,9 @@ for(yr in 0:4){
     eval_metric<-"auc"
     objective<-"binary:logistic"
     grid_params_tree<-expand.grid(
-      max_depth=8,
-      # max_depth=c(2,8),
-      eta=0.02,
+      # max_depth=8,
+      max_depth=c(6,8,10),
+      eta=0.01,
       # eta=c(0.02,0.01),
       min_child_weight=1,
       subsample=0.8,
@@ -144,7 +137,7 @@ for(yr in 0:4){
     grid_params<-grid_params_tree
     
     for(i in seq_len(dim(grid_params)[1])){
-      start_i<-Sys.time()
+      start_ii<-Sys.time()
       param<-as.list(grid_params[i,])
       # param$scale_pos_weight=mean(train$y_train$DKD_IND_additive) #inbalance sampling
       param$scale_pos_weight=1 #balance sampling
@@ -169,8 +162,8 @@ for(yr in 0:4){
       
       if(verb){
         cat('finished train case:',paste0(paste0(c(colnames(grid_params),"scale_pos_weight"),"="),param,collapse="; "),
-            'in',Sys.time()-start_i,units(Sys.time()-start_i),"\n")
-        start_i<-Sys.time()
+            'in',Sys.time()-start_ii,units(Sys.time()-start_ii),"\n")
+        start_ii<-Sys.time()
       }
     }
     hyper_param<-bst_grid[which.max(bst_grid$metric),]
@@ -210,6 +203,7 @@ for(yr in 0:4){
   }
 }
 
+##----output----
 out<-list(model_yr = model_yr,
           model_roc = model_roc,
           bm_yr = bm_yr)

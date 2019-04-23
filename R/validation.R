@@ -432,10 +432,10 @@ for(j in 0:4){
 }
 
 
-# partition_ts %<>%
-#   dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
-#                 real=DKD_IND_additive) %>%
-#   dplyr::select(PATIENT_NUM,episode,real,part_idx)
+partition_ts %<>%
+  dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
+                real=DKD_IND_additive) %>%
+  dplyr::select(PATIENT_NUM,episode,real,part_idx)
 
 
 valid_stack3 %<>%
@@ -678,10 +678,10 @@ for(j in 0:4){
   cat("finish collecting predictions for year",j,"in",lapse,units(lapse),".\n")
 }
 
-# partition_ts %<>%
-#   dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
-#                 real=DKD_IND_additive) %>%
-#   dplyr::select(PATIENT_NUM,episode,real,part_idx)
+partition_ts %<>%
+  dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM),
+                real=DKD_IND_additive) %>%
+  dplyr::select(PATIENT_NUM,episode,real,part_idx)
 
 valid_stack1 %<>%
   left_join(partition_ts,by=c("PATIENT_NUM","episode")) %>%

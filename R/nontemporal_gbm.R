@@ -1,8 +1,6 @@
 ## most recent value ##
 rm(list=ls()); gc()
 
-# setwd("~/proj_dkd/DKD_PM_wip")
-
 source("./R/util.R")
 source("./R/newXY.R")
 require_libraries(c( "Matrix"
@@ -13,26 +11,20 @@ require_libraries(c( "Matrix"
                      ,"magrittr"
 ))
 
-# Load data
+##----task parameters----
+time_iterv<-"1yr"
+ep_unit<-365.25
+period<-(365.25/ep_unit)*5
+
+
+##----Load data----
 fact_stack<-readRDS("./data2/DKD_heron_facts_prep.rda") %>%
   anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
 pat_tbl<-readRDS("./data2/pat_episode2.rda") %>%
   anti_join(readRDS("./data2/pat_T1DM.rda"),by="PATIENT_NUM")
 
-
-# time_iterv<-"3mth"
-# time_iterv<-"6mth"
-time_iterv<-"1yr"
-
-# ep_unit<-90
-# ep_unit<-182.5
-ep_unit<-365.25
-
-#period
-period<-(365.25/ep_unit)*5
-# period<-(365/ep_unit)*8
-
+##----partition----
 pat_episode<-pat_tbl %>%
   dplyr::mutate(episode = floor(as.numeric(DAY_SINCE)/ep_unit)) %>%
   semi_join(fact_stack, by = "PATIENT_NUM") %>%
@@ -42,6 +34,7 @@ partition<-pat_episode %>%
   filter(!(part_idx %in% c(5))) %>% 
   arrange(PATIENT_NUM)
 
+##----modeling----
 # number of fold for cv
 nfold<-5 #nfold for cv
 
@@ -87,9 +80,9 @@ for(yr in 0:4){
   eval_metric<-"auc"
   objective<-"binary:logistic"
   grid_params_tree<-expand.grid(
-    max_depth=8,
-    # max_depth=c(2,8),
-    eta=0.02,
+    # max_depth=6,
+    max_depth=c(6,8,10),
+    eta=0.01,
     # eta=c(0.02,0.01),
     min_child_weight=1,
     subsample=0.8,
@@ -183,6 +176,7 @@ for(yr in 0:4){
   bm_yr[[paste0(yr,"yr_since_dm")]]<-data.frame(step=bm_nm,time=bm,stringsAsFactors = F)
 }
 
+##----output----
 out<-list(model_tr =model_tr,
           model_yr = model_yr,
           model_roc = model_roc,

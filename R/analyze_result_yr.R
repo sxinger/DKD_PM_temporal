@@ -34,18 +34,8 @@ for(i in c(1,2,3,5)){
   dat<-validation[[paste0("valid_stack",i)]] %>%
     dplyr::mutate(PATIENT_NUM = as.character(PATIENT_NUM))
   
-  # if(i %in% c(1,2)){
-  #   dat<-dat %>%
-  #     dplyr::select(PATIENT_NUM,episode,pred,real,part_idx,temporal)
-  # }else{
-  #   dat<-dat %>%
-  #     dplyr::select(PATIENT_NUM,episode,pred_wt2,real,part_idx,temporal) %>%
-  #     dplyr::rename(pred = pred_wt2)
-  # }
-  
   dat<-dat %>%
-    dplyr::select(PATIENT_NUM,episode,pred_wt2,real,part_idx,temporal) %>%
-    dplyr::rename(pred = pred_wt2)
+    dplyr::select(PATIENT_NUM,episode,pred,real,part_idx,temporal)
   
   valid_out %<>% bind_rows(dat)
   
@@ -95,13 +85,19 @@ for(i in lp1){
     boots<-bootstrap(dat_sub,50)
     for(b in 1:50){
       dat_sub_b<-dat_sub %>% slice(attr(boots,"indices")[[b]])
-      perf_summ %<>%
+      perf_tbl %<>%
         bind_rows(get_perf_summ(pred=dat_sub_b$pred,
                                 real=dat_sub_b$real)$perf_summ %>%
                     dplyr::mutate(boots=b,
                                   episode = j,
                                   temporal = i))
     }
+    
+    perf_summ %<>%
+      bind_rows(get_perf_summ(pred=dat_sub$pred,
+                              real=dat_sub$real)$perf_summ %>%
+                  dplyr::mutate(episode = j,
+                                temporal = i))
 
     calib_equal_bin %<>%
       bind_rows(get_calibr(pred=dat_sub$pred,
@@ -114,21 +110,21 @@ for(i in lp1){
 
 
 # plot overall summary
-perf_overall<-perf_summ %>% 
+perf_overall<-perf_tbl %>% 
   filter(overall_meas %in% c("roauc",
                              "roauc_low",
                              "roauc_up",
                              "prauc1",
-                             "mcc",
-                             "acc",
-                             "rec_sens",
-                             "spec",
-                             "ppv",
-                             "npv")) %>%
+                             "opt_sens",
+                             "opt_spec",
+                             "opt_ppv",
+                             "opt_npv")) %>%
   group_by(episode,temporal,overall_meas) %>%
   dplyr::summarize(val=median(meas_val),
                    low=quantile(meas_val,prob=0.025),
                    up=quantile(meas_val,prob=0.975)) %>%
+  ungroup %>%
+  left_join(perf_summ,by=c("episode","temporal","overall_meas")) %>%
   dplyr::mutate(overall_meas=recode(overall_meas,
                                     roauc="1. ROAUC",
                                     prauc1="2. PRAUC",
@@ -137,7 +133,12 @@ perf_overall<-perf_summ %>%
                                     rec_sens="5. Sensitivity",
                                     spec="6. Specificity",
                                     ppv="7. Positive Predictive Value",
-                                    npv="8. Negative Predictive Value"))
+                                    npv="8. Negative Predictive Value")) %>%
+  mutate(temporal=recode(temporal,
+                         `non-temporal`="a.Latest Value",
+                         `stack-temporal`="b.Stack Temporal",
+                         `discrt-surv-temporal`="c.Discrete Survival",
+                         `dynamic-temporal`="d.Landmark Boosting"))
 
 
 #significance of difference
@@ -191,11 +192,6 @@ mtest %<>%
 
 perf_overall %<>%
   left_join(mtest,by=c("episode","temporal")) %>%
-  mutate(temporal=recode(temporal,
-                         `non-temporal`="a.Most Recent Value",
-                         `stack-temporal`="b.Stack Temporal",
-                         `discrt-surv-temporal`="c.Discrete Survival",
-                         `dynamic-temporal`="d.Landmark Boosting")) %>%
   replace_na(list(p_val=NA))
 
 
